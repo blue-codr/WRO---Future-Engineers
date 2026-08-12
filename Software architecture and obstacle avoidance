@@ -1,0 +1,48 @@
+Software architecture and obstacle avoidance 
+
+Using a Raspberry Pi (RPI) as the master and an ESP32 as the slave is a good architecture for an obstacle-avoiding robot because the two devices have different strengths.
+Why this architecture is suitable
+Raspberry Pi handles high-level vision
+The Raspberry Pi is powerful enough to run OpenCV and process camera images.
+It can identify obstacles or colored objects such as red and green.
+This avoids putting computationally expensive image-processing tasks on the ESP32.
+ESP32 handles real-time motor control
+The ESP32 is well suited for directly controlling motors, motor drivers, ultrasonic sensors, encoders, etc.
+It has much more predictable real-time response than a Raspberry Pi running a full operating system.
+Once the Pi sends a command such as dodgeright() or dodgeleft(), the ESP32 can execute the corresponding movement immediately.
+Division of responsibilities
+The system can be divided into:
+Raspberry Pi → Decision making
+Camera
+   ↓
+OpenCV
+   ↓
+Object/obstacle detection
+   ↓
+"dodgeright()" / "dodgeleft()"
+   ↓
+ESP32
+
+ESP32 → Physical control
+Command
+   ↓
+Motor control
+   ↓
+Robot movement
+
+Reduced processing load
+Image processing can consume considerable CPU resources.
+If the ESP32 were responsible for both camera processing and motor control, its resources would be more constrained.
+Separating these tasks allows each controller to perform the job it is best suited for.
+Fast and reliable motor response
+The ESP32 can continuously monitor sensors and control the motors without waiting for the Raspberry Pi to finish image processing.
+This is particularly useful when the robot needs to react quickly to an obstacle.
+Modularity
+The vision system and motor-control system can be developed independently.
+For example, the Raspberry Pi could later use a more sophisticated object-detection model without requiring major changes to the ESP32's motor-control software.
+Better fault isolation
+If the camera-processing program encounters an error, the ESP32 can still maintain control of the motors and sensors.
+Similarly, changes to the motor-control code do not require modifying the computer-vision system.
+Overall justification
+The Raspberry Pi–ESP32 master-slave architecture is appropriate because it separates high-level computational tasks from low-level real-time control. The Raspberry Pi provides the processing power required for camera-based obstacle detection and decision making, while the ESP32 provides fast, deterministic control of the robot's actuators. Communication between them can be kept simple by transmitting commands such as dodgeright() and dodgeleft().
+This makes the robot more responsive, modular, scalable, and computationally efficient than relying on either controller alone.
