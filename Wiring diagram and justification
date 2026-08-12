@@ -1,0 +1,286 @@
+Wiring diagram and justification 
+
+
+1. Wiring diagram / guide
+Overall architecture
+                       ┌──────────────────────┐
+                       │    RASPBERRY PI      │
+                       │                      │
+                       │ Camera + OpenCV      │
+                       │ Obstacle/color       │
+                       │ decision making      │
+                       └──────────┬───────────┘
+                                  │
+                         Serial / UART
+                                  │
+                                  ▼
+                       ┌──────────────────────┐
+                       │        ESP32         │
+                       │                      │
+                       │ Ultrasonic sensing   │
+                       │ Servo steering       │
+                       │ Motor control        │
+                       └───────┬───────┬──────┘
+                               │       │
+                  ┌────────────┘       └─────────────┐
+                  ▼                                  ▼
+           ┌─────────────┐                    ┌─────────────┐
+           │ Servo motor │                    │ BO Motor    │
+           │ Front wheel │                    │ Driver      │
+           └─────────────┘                    └──────┬──────┘
+                                                     │
+                                                     ▼
+                                                Rear BO motor
+                                                + rear wheels
+
+ESP32 pin connections
+Component	Connection	ESP32 pin
+Front ultrasonic TRIG	TRIG	GPIO 13
+Front ultrasonic ECHO	ECHO	GPIO 34
+Left ultrasonic TRIG	TRIG	GPIO 14
+Left ultrasonic ECHO	ECHO	GPIO 35
+Right ultrasonic TRIG	TRIG	GPIO 25
+Right ultrasonic ECHO	ECHO	GPIO 32
+Motor driver IN1	Motor control	GPIO 18
+Motor driver IN2	Motor control	GPIO 19
+Motor driver ENA	Speed/PWM	GPIO 15
+Servo signal*	PWM	Use a free GPIO
+Common ground	GND	ESP32 GND
+
+                    FRONT
+                      ↑
+
+              ┌───────────────┐
+              │   FRONT       │
+              │   HC-SR04     │
+              └───────┬───────┘
+                      │
+             ┌────────┴────────┐
+             │      ROBOT      │
+             │                 │
+ LEFT        │                 │        RIGHT
+ SENSOR ─────┤                 ├───── SENSOR
+             │                 │
+             └────────┬────────┘
+                      │
+                  REAR MOTOR
+
+Connections:
+Front sensor
+
+VCC  → 5 V
+GND  → GND
+TRIG → ESP32 GPIO 13
+ECHO → ESP32 GPIO 34*
+
+Left sensor
+VCC  → 5 V
+GND  → GND
+TRIG → ESP32 GPIO 14
+ECHO → ESP32 GPIO 35*
+
+Right sensor
+VCC  → 5 V
+GND  → GND
+TRIG → ESP32 GPIO 25
+ECHO → ESP32 GPIO 32*
+
+Don't directly connect a 5-V ECHO signal to GPIO 34, 35 or 32.
+
+Use a voltage divider on each ECHO:
+
+HC-SR04 ECHO
+     │
+    1 kΩ
+     │
+     ├──────────────→ ESP32 ECHO GPIO
+     │
+    2 kΩ
+     │
+    GND
+
+This reduces approximately 5 V to about 3.3 V.
+You need three such dividers, one for each ECHO.
+
+Power system
+Your 9-V → 5-V buck converter can supply the sensors and servo, but the power wiring should be arranged carefully.
+                 9 V BATTERY
+                     │
+          ┌──────────┴───────────┐
+          │                      │
+          ▼                      ▼
+     Motor driver            Buck converter
+     motor supply               9 V → 5 V
+          │                      │
+          ▼                      ├────────→ Servo VCC
+      BO motor                   ├────────→ Ultrasonic VCC
+                                 └────────→ ESP32 5V/VIN*
+
+And all grounds must be connected together:
+Battery GND
+     │
+     ├──── Motor driver GND
+     │
+     ├──── Buck converter GND
+     │
+     ├──── ESP32 GND
+     │
+     ├──── Servo GND
+     │
+     └──── Ultrasonic GND
+
+This common ground is essential because the ESP32's control signals need a common voltage reference.
+Servo
+For a conventional servo:
+Buck +5V ─────────→ Servo VCC
+Buck GND ─────────→ Servo GND
+ESP32 GPIO ───────→ Servo SIGNAL
+
+Do not power the servo from an ESP32 GPIO.
+The servo can draw substantial current, especially when steering against resistance, so powering it from the buck converter is the correct approach.
+
+Motor driver
+
+#define MOTOR_PIN_1 18
+#define MOTOR_PIN_2 19
+#define ENA 15
+
+ESP32                    Motor Driver
+─────                    ────────────
+
+GPIO 18 ───────────────→ IN1
+GPIO 19 ───────────────→ IN2
+GPIO 15 ───────────────→ ENA/PWM
+
+GND ───────────────────→ GND
+
+9V battery ────────────→ Motor power input
+
+                         OUT1 ───→ BO motor
+                         OUT2 ───→ BO motor
+
+The exact motor-driver wiring depends on the particular BO motor driver module you have, so IN1/IN2/ENA should be checked against its pin labels/datasheet.
+
+2. Why this circuit is suitable for obstacle avoidance
+
+three ultrasonic sensors + front steering + rear-wheel drive.
+
+The three sensors give the ESP32 spatial information about obstacles.
+
+                 FRONT
+                   ↑
+              [ FRONT ]
+                 SENSOR
+
+       [LEFT]               [RIGHT]
+       SENSOR                SENSOR
+
+            ←   ROBOT   →
+
+Instead of simply knowing "there is an obstacle", the robot can determine where the obstacle is.
+For example:
+
+Obstacle on the left
+Left distance  = 15 cm
+Front distance = 20 cm
+Right distance = 80 cm
+
+The ESP32 can conclude that the right side has more free space and steer toward the right.
+Obstacle on the right
+Left distance  = 80 cm
+Front distance = 20 cm
+Right distance = 15 cm
+
+It can steer toward the left.
+Obstacle directly ahead
+Left distance  = 60 cm
+Front distance = 15 cm
+Right distance = 55 cm
+
+The robot knows that the obstacle is primarily in its forward path and can choose a direction based on the left/right distances.
+Why use three sensors instead of one?
+A single front ultrasonic sensor provides essentially:
+"Something is approximately 20 cm away."
+
+Three sensors provide:
+"Something is 20 cm ahead,
+there is 15 cm of clearance on the left,
+and 70 cm of clearance on the right."
+
+That information makes the steering decision much better.
+Why front-wheel steering is advantageous
+Your robot is essentially using a steering-wheel configuration:
+             FRONT
+               ↑
+          ┌─────────┐
+          │ Steering│
+          │  wheel  │
+          └────┬────┘
+               │
+             BODY
+               │
+        ┌──────┴──────┐
+        │ Rear wheels │
+        │ + BO motor  │
+        └─────────────┘
+
+The servo controls the direction of the front wheel while the BO motor provides propulsion.
+This separates the two functions:
+
+BO motor → forward/reverse movement
+Servo → steering direction
+That is relatively simple to control and closely resembles the steering mechanism of a conventional vehicle.
+Why put the ESP32 in charge of the sensors and actuators?
+This is where Raspberry Pi master + ESP32 slave architecture becomes useful.
+The Raspberry Pi can perform computationally intensive tasks:
+
+Camera
+   ↓
+OpenCV
+   ↓
+Image processing
+   ↓
+Object/color recognition
+   ↓
+Decision
+   ↓
+"dodgeright()" / "dodgeleft()"
+
+The ESP32 handles the physical robot:
+Ultrasonic sensors
+       ↓
+Distance information
+       ↓
+Obstacle decision
+       ↓
+Servo + motor
+
+So the Pi doesn't have to directly generate precise motor/servo control signals.
+The resulting architecture
+             RASPBERRY PI
+          ┌───────────────┐
+          │ Camera        │
+          │ OpenCV        │
+          │ Vision        │
+          │ High-level    │
+          │ decisions     │
+          └───────┬───────┘
+                  │
+             UART/Serial
+                  │
+                  ▼
+              ESP32
+       ┌───────────────────┐
+       │                   │
+       │  Ultrasonic       │
+       │  sensors          │
+       │       ↓           │
+       │  Obstacle logic   │
+       │       ↓           │
+       │  Steering servo   │
+       │       +           │
+       │  Motor driver     │
+       │                   │
+       └───────────────────┘
+
+This is a strong design because the Pi makes higher-level decisions while the ESP32 handles real-time physical control.
