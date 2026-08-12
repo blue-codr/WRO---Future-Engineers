@@ -1,0 +1,65 @@
+Power and sensor architecture
+
+1. Steering and rear-wheel driving system
+The robot uses a front-wheel steering and rear-wheel driving configuration, similar to the basic arrangement of a conventional vehicle. The front wheel is connected to a servo motor, allowing the steering angle to be adjusted, while the rear BO motor provides the driving force.
+This arrangement provides a clear separation between directional control and propulsion. The servo changes the robot's heading without changing the speed of the rear wheels, while the rear motor continuously supplies the force required to move the robot forward. This makes the control system relatively simple because steering and motion can be controlled independently.
+
+The arrangement also provides good maneuverability for obstacle avoidance. When an obstacle is detected, the steering wheel can be turned toward the side with greater available clearance while the rear motor continues to propel the robot. This produces a smooth turning motion rather than requiring independent control of multiple drive wheels.
+
+The steering servo also provides sufficient torque to change the direction of the front wheel against the mechanical resistance from the robot's weight and contact with the ground.
+2. Ultrasonic sensors mounted at the front, front-left and front-right
+Three ultrasonic sensors are used to provide directional distance information around the front of the robot.
+                    FRONT
+                      ↑
+                ┌─────────┐
+                │ FRONT   │
+                │ SENSOR  │
+                └─────────┘
+
+          ┌─────────────────────┐
+          │                     │
+ LEFT ──► │       ROBOT         │ ◄── RIGHT
+ SENSOR   │                     │    SENSOR
+          └─────────────────────┘
+
+The front sensor primarily detects obstacles directly in the robot's path. The left and right sensors determine whether there is more free space on either side.
+This provides considerably more information than using a single ultrasonic sensor. For example:
+
+Front	Left	Right	Possible response
+Close	Far	Far	Reduce speed/turn
+Close	Close	Far	Steer right
+Close	Far	Close	Steer left
+Close	Close	Close	Stop/reassess
+Far	Far	Far	Continue forward
+
+The three-sensor arrangement is therefore particularly useful because obstacle avoidance requires not only detecting whether an obstacle exists, but also determining where the available path is.
+The sensors are also handled by the ESP32, allowing distance measurements and steering/motor decisions to be performed locally without requiring the Raspberry Pi to process every ultrasonic measurement.
+
+3. Variable speed and its relationship with torque
+Variable speed control is important because the robot does not require the same speed in every situation.
+When the path is clear, the motor can operate at a higher PWM duty cycle, allowing the robot to travel faster. As an obstacle becomes closer, the motor speed can be reduced, giving the steering system more time to respond and reducing the distance required to slow down or stop.
+
+The relationship between motor torque and speed is important here. For a DC BO motor, maximum torque is available at or near zero speed, while available torque generally decreases as motor speed increases. Therefore, reducing the commanded speed can allow the motor to operate in a region where it can provide greater torque for a given load.
+
+This is particularly beneficial during obstacle avoidance because turning the steering wheel and moving the robot through a turn creates additional mechanical resistance. A lower speed can provide better control and allow the motor to maintain sufficient torque when the robot is turning.
+Therefore, variable speed can be used as a simple control strategy:
+
+Obstacle far away
+       ↓
+High speed
+       ↓
+Obstacle approaching
+       ↓
+Reduce speed
+       ↓
+Obstacle close
+       ↓
+Low speed / stop
+       ↓
+Steer around obstacle
+       ↓
+Obstacle cleared
+       ↓
+Increase speed
+
+Overall, variable-speed control improves both safety and maneuverability, while also helping the drive motor maintain useful torque when the robot is subjected to greater load during steering and obstacle avoidance.
