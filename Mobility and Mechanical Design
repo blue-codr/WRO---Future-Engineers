@@ -1,0 +1,107 @@
+Mobility and Mechanical Design 
+
+1. Sub-systems used in the robot
+The robot can be divided into the following major sub-systems:
+Sub-system	Components used	Function
+Mechanical/locomotion system	Rear drive wheels, front steering mechanism, chassis	Provides movement and directional control
+Drive and motor-control system	DC motor, motor driver, ESP32	Controls the speed and direction of the rear drive motor
+Steering system	Servo motor, front steering mechanism	Changes the direction of the front wheels to steer the robot
+Power-supply system	Battery/9 V supply, buck converter (9 V → 5 V)	Provides suitable voltages to the different electrical components
+Obstacle-detection system	Three ultrasonic sensors positioned at the front, left and right	Measures the distance to nearby obstacles
+Vision system	Raspberry Pi, camera module, OpenCV	Detects and identifies obstacles using image processing
+Communication/control system	Raspberry Pi and ESP32	Transfers obstacle information/directions from the vision system to the motor-control system
+Central control system	ESP32	Processes sensor inputs and commands and controls the motor and steering actions
+Obstacle-avoidance system	dodgeRight() and dodgeLeft()functions, steering and drive mechanisms	Determines and executes the appropriate manoeuvre to avoid an obstacle
+Overall operation
+The robot uses two complementary methods of obstacle detection. The ultrasonic sensors provide distance information from the front, left, and right sides, while the Raspberry Pi camera provides visual information. OpenCV processes the camera images to detect obstacles. The Raspberry Pi then communicates the required direction, such as dodgeRight() or dodgeLeft(), to the ESP32. The ESP32 controls the motor driver and servo motor to execute the avoidance manoeuvre.
+
+2. Justification for the use of each sub-system
+2.1 Rear-wheel drive with a motor driver
+A rear-wheel-drive arrangement is used to provide the robot's main propulsion, while the front wheels are dedicated to steering.
+The motor driver is necessary because an ESP32 GPIO pin cannot directly supply the current required by a DC motor. It also allows the ESP32 to control the direction and speed of the motor.
+Why this instead of alternatives?
+* A motor driver provides electrical isolation between the low-power control electronics and the higher-current motor circuit.
+* PWM control can be used to vary motor speed.
+* Forward and reverse operation can be implemented by changing the motor-driver inputs.
+* Using a separate driver is more practical than attempting to drive the motor directly from the ESP32, which could damage the microcontroller.
+* Compared with a more complex motor-control system, a conventional motor driver is relatively simple, inexpensive, and appropriate for a small mobile robot.
+
+2.2 Front-wheel steering using a servo motor
+The front wheels use a servo motor to control the steering angle. This allows the ESP32 to specify a particular steering position rather than simply turning the motor on or off.
+Why use a servo instead of alternatives?
+* A servo provides relatively precise angular positioning.
+* It can maintain the required steering angle without requiring a separate position sensor in a typical setup.
+* It is simpler to interface with the ESP32 than designing a steering mechanism using a DC motor and feedback encoder.
+* Compared with differential steering, front-wheel steering is more representative of conventional vehicle steering and can produce smoother directional changes.
+* A servo is suitable when the steering mechanism only requires a limited angular range rather than continuous rotation.
+
+2.3 Buck converter for the servo power supply
+A buck converter reduces the approximately 9 V supply to 5 V for the servo motor.
+Why use a buck converter instead of alternatives?
+* A servo normally requires a lower voltage than the main supply, so direct connection to 9 V could damage it.
+* A buck converter is more efficient than a linear voltage regulator because it dissipates substantially less power as heat when reducing voltage.
+* It allows the existing higher-voltage supply to be converted to the required servo voltage without requiring a separate battery.
+* It is particularly useful in a mobile robot because power efficiency directly affects operating time.
+
+2.4 Three ultrasonic sensors
+Three ultrasonic sensors are positioned at the front, left, and right of the robot. They provide distance measurements around the robot rather than relying on information from a single direction.
+Why use ultrasonic sensors instead of alternatives?
+* Ultrasonic sensors can directly measure the distance between the robot and an obstacle.
+* They work independently of visible light, so their operation is less dependent on lighting conditions than a camera-based distance measurement system.
+* They are relatively inexpensive and straightforward to interface with the ESP32.
+* Having sensors on the front, left, and right gives the robot information about possible escape directions.
+* Infrared sensors could also be used, but their measurements can be more affected by the reflectivity and characteristics of the obstacle.
+* A LiDAR system could provide more detailed spatial information, but it would generally be more expensive and unnecessary for basic obstacle-distance detection.
+The ultrasonic sensors therefore provide a useful non-visual distance-sensing layer that complements the camera.
+
+2.5 Raspberry Pi with camera module
+The Raspberry Pi and camera module provide the robot with a vision-based perception system. The camera captures images and the Raspberry Pi processes them using OpenCV.
+Why use a Raspberry Pi and camera instead of relying only on ultrasonic sensors?
+* Ultrasonic sensors provide distance information but cannot provide the same level of visual information about an object.
+* A camera can distinguish visual features such as shape, colour, edges, and position.
+* OpenCV provides established image-processing functions without requiring the development of a complete computer-vision system from scratch.
+* The Raspberry Pi has substantially greater computational capability than a microcontroller such as the ESP32, making it more suitable for image processing.
+* A conventional microcontroller alone would have limited resources for running relatively complex computer-vision algorithms.
+The camera therefore complements the ultrasonic sensors: ultrasonic sensors determine physical proximity, while computer vision provides visual information about the environment.
+
+2.6 OpenCV for obstacle detection
+OpenCV is used on the Raspberry Pi to process the camera images and determine whether an obstacle is present.
+Why use OpenCV instead of developing image-processing algorithms entirely from scratch?
+* It provides established functions for image acquisition, filtering, thresholding, edge detection, contour detection, object detection, and other computer-vision operations.
+* It reduces development time.
+* It is open-source and widely supported.
+* It is compatible with the Raspberry Pi and Python/C++ environments.
+* Using a software library makes the vision subsystem easier to modify and test.
+Alternative approaches such as dedicated computer-vision hardware could reduce processing requirements on the Raspberry Pi, but would add hardware complexity and cost.
+
+2.7 ESP32 as the main robot controller
+The ESP32 acts as the low-level controller responsible for interacting with the robot's motors, servo, and sensors. It receives directions from the Raspberry Pi and executes the corresponding manoeuvre.
+Why use an ESP32 instead of allowing the Raspberry Pi to control everything directly?
+* The ESP32 is well suited to real-time control of motors, servos, and sensors.
+* It has GPIO, PWM, and communication interfaces required for these components.
+* It is less computationally demanding to control motors and read sensors than a Raspberry Pi.
+* Separating high-level vision processing from low-level motor control prevents image-processing tasks from being directly responsible for precise motor timing.
+* The ESP32 can continue handling time-critical hardware operations while the Raspberry Pi performs computationally heavier vision processing.
+* It is relatively inexpensive and has low power consumption.
+This creates a useful division of responsibility:
+Raspberry Pi → high-level perception and decision-making
+ESP32 → low-level sensing and actuation
+
+2.8 Raspberry Pi–ESP32 communication
+Communication between the Raspberry Pi and ESP32 allows the vision system to send commands such as dodgeRight()and dodgeLeft() to the motor-control system.
+Why use a master–slave arrangement instead of using a single controller?
+* The Raspberry Pi is better suited to computationally intensive image processing.
+* The ESP32 is better suited to direct hardware control.
+* Splitting the tasks reduces the computational burden on either device.
+* The architecture is modular: the vision system and motor-control system can be developed and tested separately.
+* Hardware-level motor control remains on the ESP32 rather than depending on the operating system timing of the Raspberry Pi.
+This separation also makes it easier to replace or modify one subsystem without redesigning the entire robot.
+
+2.9 Combined obstacle-avoidance system
+The robot does not depend on a single sensing technique. It combines ultrasonic distance sensing and camera-based computer vision.
+This is advantageous because the two techniques have different strengths:
+Technique	Main strength	Main limitation
+Ultrasonic sensing	Direct distance measurement	Limited information about object appearance
+Camera + OpenCV	Provides visual information	Affected by lighting and requires more processing
+Combined system	Complementary information and greater robustness	Greater hardware and software complexity
+The use of both systems therefore provides a more comprehensive perception system than using either technique alone. The detected information is converted into decisions such as dodgeRight() or dodgeLeft(), which the ESP32 then translates into steering and motor actions.
