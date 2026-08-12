@@ -1,0 +1,296 @@
+
+
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
+
+// ======================================================
+// PCA9685
+// ======================================================
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);
+
+#define SDA_PIN 21
+#define SCL_PIN 22
+
+
+// Steering servo connected to PCA9685 channel 0
+#define STEERING_CHANNEL 0
+
+// Servo calibration
+#define SERVO_MIN 150
+#define SERVO_MAX 600
+
+// Steering angles
+#define STEER_CENTER 45
+#define STEER_LEFT   15
+#define STEER_RIGHT  76
+
+// ======================================================
+// Ultrasonic sensors
+// ======================================================
+#define FRONT_TRIG 13
+#define FRONT_ECHO 34
+
+#define LEFT_TRIG 14
+#define LEFT_ECHO 35
+
+#define RIGHT_TRIG 25
+#define RIGHT_ECHO 32
+
+// ======================================================
+// BO Motor
+// 18, 19 = motor direction pins
+//
+// HIGH, LOW = forward. 
+// ======================================================
+#define MOTOR_PIN_1 18
+#define MOTOR_PIN_2 19
+#define ENA 15
+
+// ======================================================
+// Navigation parameters
+// ======================================================
+#define FRONT_LIMIT 70.0       // obstacle distance in cm
+#define WALL_DISTANCE 10.0    // desired right-wall distance
+
+// How strongly the steering reacts to wall error
+#define STEERING_GAIN 1.5 //3.0
+
+// Maximum correction from center
+#define MAX_CORRECTION 20 //25 
+
+// Distance considered "open" when choosing a turn
+#define OPEN_DISTANCE 10.0
+
+// Time to perform a turn
+#define TURN_TIME 1000
+
+// ======================================================
+// Servo function
+// ======================================================
+void setSteering(int angle)
+{
+  angle = constrain(angle, 0, 180);
+
+  int pulse = map(angle, 0, 180, SERVO_MIN, SERVO_MAX);
+
+  pwm.setPWM(STEERING_CHANNEL, 0, pulse);
+}
+
+// ======================================================
+// Motor functions
+// ======================================================
+void motorForward()
+{
+  digitalWrite(MOTOR_PIN_1, HIGH);
+  digitalWrite(MOTOR_PIN_2, LOW);
+}
+
+void motorStop()
+{
+  digitalWrite(MOTOR_PIN_1, LOW);
+  digitalWrite(MOTOR_PIN_2, LOW);
+}
+
+// ======================================================
+// Ultrasonic distance
+// ======================================================
+float getDistance(int trigPin, int echoPin)
+{
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  long duration = pulseIn(echoPin, HIGH, 30000);
+
+  // No echo received
+  if (duration == 0)
+  {
+    return 400.0;
+  }
+
+  float distance = duration * 0.0343 / 2.0;
+
+  return distance;
+}
+
+// ======================================================
+// Right wall following
+// ======================================================
+void followRightWall(float rightDistance)
+{
+  float error = rightDistance - WALL_DISTANCE;
+
+  /*
+     error > 0:
+       Robot is too far from wall
+       -> steer right
+
+     error < 0:
+       Robot is too close to wall
+       -> steer left
+  */
+
+  int correction = error * STEERING_GAIN;
+
+  correction = constrain(
+    correction,
+    -MAX_CORRECTION,
+    MAX_CORRECTION
+  );
+
+  int steeringAngle = STEER_CENTER + correction;
+
+  steeringAngle = constrain(
+    steeringAngle,
+    STEER_CENTER - MAX_CORRECTION,
+    STEER_CENTER + MAX_CORRECTION
+  );
+
+  setSteering(steeringAngle);
+}
+
+// ======================================================
+// Turn right
+// ======================================================
+void turnRight()
+{
+  Serial.println("TURNING RIGHT");
+
+  setSteering(STEER_RIGHT);
+  motorForward();
+
+  delay(TURN_TIME);
+
+  setSteering(STEER_CENTER);
+
+  delay(200);
+}
+
+// ======================================================
+// Turn left
+// ======================================================
+void turnLeft()
+{
+  Serial.println("TURNING LEFT");
+
+  setSteering(STEER_LEFT);
+  motorForward();
+
+  delay(TURN_TIME);
+
+  setSteering(STEER_CENTER);
+
+  delay(200);
+}
+
+// ======================================================
+// Setup
+// ======================================================
+void setup()
+{
+  Serial.begin(115200);
+
+  // I2C
+  Wire.begin(SDA_PIN, SCL_PIN);
+
+  // PCA9685
+  pwm.begin();
+  pwm.setPWMFreq(50);  // Standard servo frequency
+
+  // Ultrasonic pins
+  pinMode(FRONT_TRIG, OUTPUT);
+  pinMode(FRONT_ECHO, INPUT);
+
+  pinMode(LEFT_TRIG, OUTPUT);
+  pinMode(LEFT_ECHO, INPUT);
+
+  pinMode(RIGHT_TRIG, OUTPUT);
+  pinMode(RIGHT_ECHO, INPUT);
+
+  // Motor
+  pinMode(MOTOR_PIN_1, OUTPUT);
+  pinMode(MOTOR_PIN_2, OUTPUT);
+
+  // Initial state
+  setSteering(STEER_CENTER);
+  motorForward();
+
+  Serial.println("Robot started");
+}
+
+// ======================================================
+// Main loop
+// ======================================================
+void loop()
+{
+  float frontDistance = getDistance(FRONT_TRIG, FRONT_ECHO);
+  delay(10);
+
+  float rightDistance = getDistance(RIGHT_TRIG, RIGHT_ECHO);
+  delay(10);
+
+  float leftDistance = getDistance(LEFT_TRIG, LEFT_ECHO);
+
+  // Debug information
+  Serial.print("Front: ");
+  Serial.print(frontDistance);
+  Serial.print(" cm | Left: ");
+  Serial.print(leftDistance);
+  Serial.print(" cm | Right: ");
+  Serial.print(rightDistance);
+  Serial.println(" cm");
+
+  // ====================================================
+  // FRONT OBSTACLE
+  // ====================================================
+  if (frontDistance < FRONT_LIMIT)
+  {
+    Serial.println("FRONT OBSTACLE!");
+
+    /*
+       Decide which direction has more space.
+
+       If right side has more space:
+           turn right
+
+       Otherwise:
+           turn left
+    */
+
+    if (rightDistance > OPEN_DISTANCE &&
+        rightDistance > leftDistance)
+    {
+      turnRight();
+    }
+    else if (leftDistance > OPEN_DISTANCE)
+    {
+      turnLeft();
+    }
+    else
+    {
+      // Both sides are blocked.
+      // Stop instead of crashing.
+      Serial.println("NO OPEN PATH - STOP");
+
+      motorStop();
+      setSteering(STEER_CENTER);
+
+      delay(500);
+    }
+  }
+
+  // ====================================================
+  // NORMAL WALL FOLLOWING
+  // ====================================================
+  else
+  {
+    motorForward();
+
+    followRightWall(rightDistance);
+  }
+
+  delay(30);
+}
